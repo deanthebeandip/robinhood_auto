@@ -75,7 +75,8 @@ def limit_sell(tick, poll_time):
     # print(df)
     # print(max_price, min_price)
 
-
+def sell():
+    pass
 
 
 
