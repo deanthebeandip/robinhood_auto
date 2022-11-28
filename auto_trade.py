@@ -53,21 +53,43 @@ def rs_login(pass_file):
     # rs.logout()
 
 
+def sell_loop():
+    buyin = initial = 100
+    final = -1
+    transaction_count = 0
+    wl_count = 0
+    while transaction_count < 3:
+        rolling_credit = limit_sell('UUUU', 5, buyin)
+        print("Sell happened! Buyin: %.2f, Sold: %.2f" % (buyin, rolling_credit))
+        if rolling_credit > buyin: wl_count += 1
+        buyin = final = rolling_credit
+        sleep(60)
+        transaction_count += 1
+        
+    # Final has rolling credit score,
+    ratio = round(final/initial, 2)
+    print("Finished %i transactions! Buyin: %.2f, Final: %.2f, Return: %.2f, WL: %.2f" 
+        % (transaction_count, buyin, final, ratio, round(wl_count/transaction_count,2)))
+
+        
+        
 
 
-def limit_sell(tick, poll_time):
+
+def limit_sell(tick, poll_time, buyin):
     df = pd.DataFrame(columns=['date', 'price'])
-    
     base_price = float(rs.stocks.get_latest_price(tick, includeExtendedHours=True)[0])
+    print("Base price for %s is $%.2f" % (tick, base_price))
     while True:
         price = float(rs.stocks.get_latest_price(tick, includeExtendedHours=True)[0])
+        print("Current price for %s is $%.2f" % (tick, price))
         df.loc[len(df)] = [pd.Timestamp.now(), price]
         if price < 0.99*base_price:
             print("Price has dropped 1%, time to sell!")
-            break
+            return price * (buyin/base_price)
         elif price > 1.03*base_price:
             print("Price has raised 3%, time to sell!")
-            break
+            return price * (buyin/base_price)
         else:
             sleep(poll_time)
 
@@ -218,7 +240,9 @@ def read_file(filename):
 
 async def main():
     rs_login(pass_pull_file)
-    limit_sell('NVDA', 60)
+    sell_loop()
+
+
 
 
     # min_pull, conf, gen, samp = 0.99, 60, 1000, 100
