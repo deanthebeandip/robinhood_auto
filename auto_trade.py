@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import math
 import os
 import shutil
+import time
 from time import sleep
 import asyncio
 import random
@@ -53,30 +54,35 @@ def rs_login(pass_file):
     # rs.logout()
 
 
-def sell_loop():
+async def sell_loop(tick, wait, min, max, rounds):
+    start = time.time()
     buyin = initial = 100
     final = -1
     transaction_count = 0
     wl_count = 0
-    while transaction_count < 3:
-        rolling_credit = limit_sell('UUUU', 5, buyin)
+    while transaction_count < rounds:
+        rolling_credit = await limit_sell(tick, wait, buyin, min, max)
         print("Sell happened! Buyin: %.2f, Sold: %.2f" % (buyin, rolling_credit))
         if rolling_credit > buyin: wl_count += 1
-        buyin = final = rolling_credit
+        buyin = rolling_credit
         sleep(60)
         transaction_count += 1
         
     # Final has rolling credit score,
-    ratio = round(final/initial, 2)
+    ratio = round(buyin/initial, 2)
+    wl_ratio = round(wl_count/transaction_count,2)
     print("Finished %i transactions! Buyin: %.2f, Final: %.2f, Return: %.2f, WL: %.2f" 
-        % (transaction_count, buyin, final, ratio, round(wl_count/transaction_count,2)))
+        % (transaction_count, buyin, final, ratio, wl_ratio))
+    print("Trading Time for %s : %.2f" % (tick, round(time.time() - start,2)))
+
+    return ratio, wl_ratio
 
         
         
 
 
 
-def limit_sell(tick, poll_time, buyin):
+async def limit_sell(tick, poll_time, buyin, min, max):
     df = pd.DataFrame(columns=['date', 'price'])
     base_price = float(rs.stocks.get_latest_price(tick, includeExtendedHours=True)[0])
     print("Base price for %s is $%.2f" % (tick, base_price))
@@ -84,11 +90,11 @@ def limit_sell(tick, poll_time, buyin):
         price = float(rs.stocks.get_latest_price(tick, includeExtendedHours=True)[0])
         print("Current price for %s is $%.2f" % (tick, price))
         df.loc[len(df)] = [pd.Timestamp.now(), price]
-        if price < 0.99*base_price:
-            print("Price has dropped 1%, time to sell!")
+        if price < min*base_price:
+            print("Price has dropped 2p to %.2f, return %.2f!" % (price, price*buyin/base_price))
             return price * (buyin/base_price)
-        elif price > 1.03*base_price:
-            print("Price has raised 3%, time to sell!")
+        elif price > max*base_price:
+            print("Price has raised 1p to %.2f, return %.2f!" % (price, price*buyin/base_price))
             return price * (buyin/base_price)
         else:
             sleep(poll_time)
@@ -170,34 +176,7 @@ def graph_3D():
     gc_list = y = [row[1] for row in data_points]
     gp_list = z = [row[2] for row in data_points] 
 
-    '''
-    fig = plt.figure(figsize = (16, 9))
-    ax = plt.axes(projection='3d')
-    ax.grid(visible = True, color ='grey',
-        linestyle ='-.', linewidth = 0.3,
-        alpha = 0.2)
-    # Creating color map
-    my_cmap = plt.get_cmap('hsv')
- 
-    # Creating plot
-    sctt = ax.scatter3D(x, y, z,
-                        alpha = 0.8,
-                        c = z,
-                        cmap = my_cmap,
-                        marker ='P')
-    fig.colorbar(sctt, ax = ax, shrink = 0.5, aspect = 5)
-    # for m, zlow, zhigh in [('o', 1, 1.05), ('^', 1.051, 5)]:
-    #     xs = gm_list
-    #     ys = gc_list
-    #     zs = gp_list
-    #     ax.scatter(xs, ys, zs, marker=m)
-    '''
 
-    '''
-    # ax.scatter(gm_list, gc_list, gp_list, c=gp_list, cmap='viridis', linewidth=0.5)
-    # ax.plot_trisurf(gm_list, gc_list, gp_list, cmap='viridis', edgecolor='none')
-    # ax.scatter3D(gm_list, gc_list, gp_list, cmap= "Greens")
-    '''
     fig,ax=plt.subplots(1,1)
     X, Y = np.meshgrid(min_list, conf_list)
     z_2 = []
@@ -238,9 +217,50 @@ def read_file(filename):
     f = open(filename, "r")
     return f.read()
 
+
+async def run_simulation(sim):
+    # run sell_loop 20 times
+    # try: sell loop
+    # except" fails
+    # at the end, there will be a 20 list of simulation results
+    # print this out into an excel sheet
+
+
+
+    sim_list = []
+    ranges = [[.99, 1.01], [.98,1.01], [.99, 1.02]]
+    count = 0
+    for s in range(sim):
+        try:
+            start_time = time.time()
+            curr_sim = []
+            wait, min, max, rounds = 15, 0.98, 1.01, 20
+            min, max = ranges[count % 3][0], ranges[count % 3][1] #reassign minmax
+            # f1 = asyncio.create_task(sell_loop("UUUU", wait, min, max, rounds))
+            # f2 = asyncio.create_task(sell_loop("BBBY", wait, min, max, rounds))
+            # f3 = asyncio.create_task(sell_loop('VAXX', wait, min, max, rounds))
+            ratio, wl_ratio = await sell_loop('COSM', wait, min, max, rounds)
+
+            elapsed_time = round(time.time() - start_time, 2)
+            curr_sim = [wait, min, max, rounds, ratio, wl_ratio, elapsed_time]
+
+            sim_list.append(curr_sim)
+            count += 1
+        except:
+            print('Simulation Error')
+    
+    df = pd.DataFrame(sim_list)
+    df.to_csv('first_test.csv', index=False, header=False)
+    return sim_list
+
+        
+
+
+
 async def main():
     rs_login(pass_pull_file)
-    sell_loop()
+    slist = await run_simulation(10)
+
 
 
 
@@ -259,17 +279,26 @@ async def main():
 
     # Stock Notes: 
     # Start at 10:30, ends at 5:00
-    # Should I keep track of gold, FED interest rate, inflation, etc?
+    # Should I keep track of volume, inflation, gold, silver (elements), FED interest rate, inflation, etc?
     # Keeping track of Stocks is already good enough?
 
     # Dean Kitchen Thoughts
     # 1) The Confidence (Favor) of Market changes rapidly. Not so simple
     # as a stagnant percentage of me winning/losing. Maybe Find trend?
     # 2) Use Machine Learning to figure out at certain patterns what 
-    # Confidence proved to be true, then use that as my basiss
+    # Confidence proved to be true, then use that as my basis
     # 3) Figure out the width, variance of a stock. How likely
     # it is to reach 3%, or 5%, etc... then I could use that as prediction 
 
+    # 221209
+    # Related to KT1
+    # Create a big simulation
+    # Try every 15 minutes...
+    # Then have 20 reports of "20 rolls" to see how well I did. Have a time stamp on start and end as well...
+    # Print this out into a csv
+    # Inputs: # rolls, min, max
+    # Outputs: return ratio, W/L ratio, total time
+    # Have these trade, like test [0.99, 1.02], [.98, 1.01], [.99, 1.01] have these 3 alternate...
 
 
 
@@ -278,4 +307,53 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+    # loop = asyncio.get_event_loop()
+    # loop.run_until_complete(main())
+    # loop.close()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    ''' Plot 3D extra plot stuff
+    fig = plt.figure(figsize = (16, 9))
+    ax = plt.axes(projection='3d')
+    ax.grid(visible = True, color ='grey',
+        linestyle ='-.', linewidth = 0.3,
+        alpha = 0.2)
+    # Creating color map
+    my_cmap = plt.get_cmap('hsv')
+ 
+    # Creating plot
+    sctt = ax.scatter3D(x, y, z,
+                        alpha = 0.8,
+                        c = z,
+                        cmap = my_cmap,
+                        marker ='P')
+    fig.colorbar(sctt, ax = ax, shrink = 0.5, aspect = 5)
+    # for m, zlow, zhigh in [('o', 1, 1.05), ('^', 1.051, 5)]:
+    #     xs = gm_list
+    #     ys = gc_list
+    #     zs = gp_list
+    #     ax.scatter(xs, ys, zs, marker=m)
+    '''
+
+    '''
+    # ax.scatter(gm_list, gc_list, gp_list, c=gp_list, cmap='viridis', linewidth=0.5)
+    # ax.plot_trisurf(gm_list, gc_list, gp_list, cmap='viridis', edgecolor='none')
+    # ax.scatter3D(gm_list, gc_list, gp_list, cmap= "Greens")
+    '''
